@@ -1,5 +1,17 @@
-opencv-python
-mediapipe
 Pillow
+mediapipe==0.10.21
+opencv-contrib-python
 numpy
-tk
+matplotlib
+protobuf
+jax
+jaxlib
+sentencepiece
+sounddevice
+absl-py
+attrs
+flatbuffers
+
+# To pin exact versions from your virtualenv, run:
+#   source ./venv/bin/activate
+#   python -m pip freeze > requirements.txt

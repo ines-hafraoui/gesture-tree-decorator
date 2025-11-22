@@ -1,4 +1,24 @@
 # Count to Decorate: Hand-Controlled Interactive Christmas Tree
+
+Hand gesture / finger counting demo using MediaPipe and OpenCV.
+
+## Quick Start
+
+Clone the repo, create a virtual environment, install dependencies, and run:
+
+```bash
+git clone git@github.com:ines-hafraoui/gesture-tree-decorator.git 
+cd Count-to-Decorate
+python3 -m venv venv
+source venv/bin/activate
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+python main.py
+```
+
+Notes:
+- On macOS you may need to allow camera access for Terminal or your Python interpreter.
+
 ## Project Overview
 Count to Decorate is an interactive application that lets users decorate a digital Christmas tree using hand-gesture commands detected through a webcam. By showing numbers with their fingers (1, 2, 3…), users can select digital ornaments and place them on the tree, creating a fun and seasonal Natural User Interface (NUI).
 
