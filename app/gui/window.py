@@ -2,8 +2,10 @@
 import tkinter as tk
 from tkinter import ttk
 from PIL import Image, ImageTk
+import cv2
+import time
 from vision.camera_thread import CameraThread
-from vision.hand_detector import DummyHandDetector
+from vision.hand_detector import HandGesture
 from gui.renderer import TreeRenderer
 from ornaments.manager import OrnamentManager
 from utils.config import ASSETS_PATH
@@ -11,13 +13,15 @@ from utils.config import ASSETS_PATH
 class MainWindow:
     def __init__(self):
         self.root = tk.Tk()
-        self.root.title("Count to Decorate")
+        self.root.title("Gesture Tree Decorator")
 
         # Core systems
         self.camera = CameraThread()
-        self.detector = DummyHandDetector()
+        self.detector = HandGesture()
         self.manager = OrnamentManager()
         self.renderer = TreeRenderer(self.manager)
+        self.last_add_time = 0
+        self.add_cooldown = 1
 
         # UI Layout
         self._build_ui()
@@ -74,6 +78,24 @@ class MainWindow:
             idx = int(event.char)
             self._select_ornament(idx)
 
+    def _update_preview(self, frame):
+        """ Convert camera frame to Tkinter image and display """
+        try:
+            img = ImageTk.PhotoImage(Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)))
+            self.preview_label.imgtk = img
+            self.preview_label.config(image=img)
+        except Exception as e:
+            print("Preview update failed:", e)
+
+    def _update_finger_count(self, count):
+        """ Detect finger count and add ornament if cooldown passed """
+        self.mode_var.set(f"Fingers: {count}")
+
+        now = time.time()
+        if count != 0 and now - self.last_add_time > self.add_cooldown:
+            self.manager.add_ornament(count)
+            self.last_add_time = now
+
     def _update(self):
         """
         Periodic update loop:
@@ -81,20 +103,17 @@ class MainWindow:
         - Run hand detector
         - Toggle menu visibility
         """
-        frame = self.camera.last_frame
-
-        if frame is not None:
-            img = ImageTk.PhotoImage(frame)
-            self.preview_label.imgtk = img
-            self.preview_label.config(image=img)
-
-            if self.detector.detect(frame):  # Dummy detection
-                self.menu_frame.grid()
-                self.mode_var.set("Add Mode")
-            else:
-                self.menu_frame.grid_remove()
-                self.mode_var.set("Idle")
-
+        if self.camera.running:
+            frame = self.camera.read_frame()
+            if frame is not None:
+                finger_count, annotated_frame = self.detector.process(frame)
+                self._update_preview(annotated_frame) #
+                self._update_finger_count(finger_count) #
+        else:
+            self.preview_label.config(image="")
+            self.mode_var.set("Idle")
+            self.menu_frame.grid_remove()
+        
         self.renderer.render(self.tree_canvas)
         self.root.after(30, self._update)
 
