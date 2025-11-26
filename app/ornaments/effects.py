@@ -1,13 +1,165 @@
 # app/ornaments/effects.py
+import cv2
+import numpy as np
 
-def apply_brightness(img, value):
-    return img  # TODO
+def apply_brightness(img, value=5):
+    """
+    Increase or Decrease brightness of img by value using:
+    Works for color images (BGR expected).
+    """
+    return cv2.add(img, np.array([value]))
 
-def apply_blur(img):
-    return img  # TODO
 
-def apply_mosaic(img):
-    return img  # TODO
+def apply_contrast(img, value=5):
+    """
+    Adjust contrast of the image.
+    alpha > 1 increases contrast, 0 < alpha < 1 decreases contrast.
+    """
+    img = img.astype(np.float32)  # prevent clipping
+    img = img * value
+    img = np.clip(img, 0, 255).astype(np.uint8)
+    return img
+
+def apply_blur(img, ksize=5):
+    """
+    Apply Gaussian blur. ksize must be odd.
+    """
+    if ksize % 2 == 0:
+        ksize += 1
+    return cv2.GaussianBlur(img, (ksize, ksize), 0)
+
+def apply_mosaic(img, scale=0.1):
+    """
+    Apply mosaic (pixelation) effect.
+    scale: fraction to downscale the image (0.05–0.5 usually).
+    """
+    h, w = img.shape[:2]
+    small = cv2.resize(img, (int(w*scale), int(h*scale)), interpolation=cv2.INTER_LINEAR)
+    mosaic_img = cv2.resize(small, (w, h), interpolation=cv2.INTER_NEAREST)
+    return mosaic_img
 
 def apply_histogram_equalization(img):
-    return img  # TODO
+    """
+    Apply histogram equalization to improve contrast.
+    Works on grayscale or color images.
+    """
+    if len(img.shape) == 2:  # grayscale
+        return cv2.equalizeHist(img)
+    else:  # color
+        ycrcb = cv2.cvtColor(img, cv2.COLOR_BGR2YCrCb)
+        ycrcb[:, :, 0] = cv2.equalizeHist(ycrcb[:, :, 0])
+        return cv2.cvtColor(ycrcb, cv2.COLOR_YCrCb2BGR)
+
+def _match_cdf(source_channel, template_channel):
+    """Histogram specification (match) for a single-channel 2D array.
+       Uses unique-value CDF mapping (works for uint8)."""
+    src = source_channel.ravel()
+    tmpl = template_channel.ravel()
+
+    # get unique pixel values and their forward indices & counts
+    s_values, s_idx, s_counts = np.unique(src, return_inverse=True, return_counts=True)
+    t_values, t_counts = np.unique(tmpl, return_counts=True)
+
+    # compute cumulative distribution (normalized)
+    s_quantiles = np.cumsum(s_counts).astype(np.float64)
+    s_quantiles /= s_quantiles[-1]
+    t_quantiles = np.cumsum(t_counts).astype(np.float64)
+    t_quantiles /= t_quantiles[-1]
+
+    # map source quantiles to template values via interpolation
+    interp_t_values = np.interp(s_quantiles, t_quantiles, t_values)
+
+    # build matched channel (use s_idx to map back to original shape)
+    matched = interp_t_values[s_idx].reshape(source_channel.shape)
+
+    # maintain dtype (clip & cast)
+    if np.issubdtype(source_channel.dtype, np.integer):
+        matched = np.clip(matched, 0, 255).astype(source_channel.dtype)
+    return matched
+
+def apply_histogram_specification(src_img, ref_img, match_luminance=True, debug=False):
+    """
+    Match histogram of src_img to ref_img.
+    - If match_luminance=True : convert BGR -> YCrCb and match only Y channel (recommended).
+    - Works for grayscale, BGR, and BGRA images. Preserves alpha if present.
+    """
+
+    if src_img is None or ref_img is None:
+        raise ValueError("src_img and ref_img must be valid images (not None).")
+
+    # copy so we don't mutate inputs
+    src = src_img.copy()
+    ref = ref_img.copy()
+
+    # If images are loaded with IMREAD_UNCHANGED they may have alpha channel.
+    src_alpha = None
+    ref_alpha = None
+
+    # Separate alpha if present
+    if src.ndim == 3 and src.shape[2] == 4:
+        src_alpha = src[:, :, 3].copy()
+        src = src[:, :, :3]
+        if debug: print("src has alpha; shape after split:", src.shape, "alpha shape:", src_alpha.shape)
+
+    if ref.ndim == 3 and ref.shape[2] == 4:
+        ref_alpha = ref[:, :, 3].copy()
+        ref = ref[:, :, :3]
+        if debug: print("ref has alpha; shape after split:", ref.shape, "alpha shape:", ref_alpha.shape)
+
+    # If grayscale images (H,W) -> convert to (H,W,1) style for unify
+    if src.ndim == 2:
+        src = src[:, :, np.newaxis]
+    if ref.ndim == 2:
+        ref = ref[:, :, np.newaxis]
+
+    # Ensure color images have 3 channels (BGR)
+    if src.ndim == 3 and src.shape[2] == 3 and ref.ndim == 3 and ref.shape[2] == 3:
+        pass
+    elif src.shape[2] != ref.shape[2]:
+        # fallback: if reference lacks color channels, convert it to 3-channel using cvtColor
+        if ref.shape[2] == 1 and src.shape[2] == 3:
+            ref = cv2.cvtColor(ref, cv2.COLOR_GRAY2BGR)
+        elif ref.shape[2] == 3 and src.shape[2] == 1:
+            src = cv2.cvtColor(src, cv2.COLOR_GRAY2BGR)
+        else:
+            # other mismatches: raise helpful error
+            raise ValueError(f"Channel mismatch: src channels={src.shape[2]}, ref channels={ref.shape[2]}")
+
+    # Now perform histogram matching
+    if src.shape[2] == 1:
+        # grayscale: single-channel match
+        matched = _match_cdf(src[:, :, 0], ref[:, :, 0])
+        result = matched[:, :, np.newaxis]
+    else:
+        # color: choose strategy
+        if match_luminance:
+            # convert both to YCrCb, match Y only
+            src_ycc = cv2.cvtColor(src, cv2.COLOR_BGR2YCrCb)
+            ref_ycc = cv2.cvtColor(ref, cv2.COLOR_BGR2YCrCb)
+
+            y_matched = _match_cdf(src_ycc[:, :, 0], ref_ycc[:, :, 0])
+
+            # rebuild and convert back to BGR
+            out_ycc = src_ycc.copy()
+            out_ycc[:, :, 0] = y_matched
+            result = cv2.cvtColor(out_ycc, cv2.COLOR_YCrCb2BGR)
+        else:
+            # match each channel independently (B, G, R)
+            channels = []
+            for c in range(3):
+                ch_mat = _match_cdf(src[:, :, c], ref[:, :, c])
+                channels.append(ch_mat)
+            result = np.stack(channels, axis=2)
+
+    # Re-attach alpha if it existed in source (we keep src's alpha)
+    if src_alpha is not None:
+        # ensure result is uint8 and has shape (H,W,3), then stack alpha
+        if result.dtype != np.uint8:
+            result = np.clip(result, 0, 255).astype(np.uint8)
+        result = np.dstack((result, src_alpha))
+
+    # final dtype guard
+    if result.dtype != np.uint8:
+        result = np.clip(result, 0, 255).astype(np.uint8)
+
+    return result
