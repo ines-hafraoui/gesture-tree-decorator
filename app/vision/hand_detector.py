@@ -44,14 +44,18 @@ class HandGesture:
 
     def process(self, frame):
         """
-        Process frame and return detected finger count (int) and frame
-        with drawn hand landmarks.
+        Process frame and return:
+        - finger_count (int)
+        - annotated frame
+        - index fingertip position in pixel coords (x, y)
+        with dranwn hand landmarks
         """
         frame = cv2.flip(frame, 1)
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         results = self.hands.process(rgb)
 
         finger_count = 0
+        index_tip_pos = None
 
         if results.multi_hand_landmarks:
             for idx, hand_landmarks in enumerate(results.multi_hand_landmarks):
@@ -67,4 +71,11 @@ class HandGesture:
 
                 finger_count = count_fingers(hand_landmarks, hand_label)
 
-        return finger_count, frame
+                # Get index fingertip position
+                lm = hand_landmarks.landmark
+                h, w, _ = frame.shape
+                tip_x = int(lm[8].x * w)
+                tip_y = int(lm[8].y * h)
+                index_tip_pos = (tip_x, tip_y)
+
+        return finger_count, frame, index_tip_pos
