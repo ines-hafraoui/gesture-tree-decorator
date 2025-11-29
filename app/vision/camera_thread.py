@@ -1,5 +1,6 @@
 # app/vision/camera_thread.py
 import cv2
+from ornaments.effects import apply_histogram_specification
 
 class CameraThread:
     def __init__(self, cam_idx=0):

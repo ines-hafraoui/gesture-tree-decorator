@@ -1,5 +1,7 @@
 import random
 from ornaments.ornament import Ornament
+import numpy as np
+from PIL import Image
 
 # Import all the other subclasses we created earlier
 from ornaments.star import Star
@@ -10,6 +12,7 @@ from ornaments.ball import DecorativeBall
 # Import global effects
 from ornaments.effects import apply_blur
 from ornaments.effects import apply_contrast
+from ornaments.effects import apply_histogram_specification
 
 class OrnamentManager:
     def __init__(self):
@@ -28,10 +31,8 @@ class OrnamentManager:
         self.original_tree = tree_img
         self.current_tree = tree_img.copy()
 
-    # --------------------
     # CREATION
-    # --------------------
-    def create_ornament(self, type_id, position):
+    def create_ornament(self, type_id, position, ref_image=None):
         if type_id == 1:
             self.global_contrast += 0.05  # increase contrast per candy cane
             # Cap contrast if needed
@@ -41,9 +42,9 @@ class OrnamentManager:
         elif type_id == 2:
             return Bell(position)
         elif type_id == 3:
-            return Painting(position)
+            return Painting(position, ref_image=ref_image)
         elif type_id == 4:
-            return DecorativeBall(position)  # <-- your blur ball
+            return DecorativeBall(position)  
         elif type_id == 5:
             return Star(position)
         else:
@@ -52,16 +53,14 @@ class OrnamentManager:
     def add(self, ornament):
         self.ornaments.append(ornament)
 
-    # --------------------
     # REMOVE
-    # --------------------
     def remove_last(self):
         if self.ornaments:
-            self.ornaments.pop()
+            return self.ornaments.pop()
+        return None
 
-    # --------------------
+
     # RANDOM TREE PLACEMENT
-    # --------------------
     def add_ornament_random(self, type_id):
         # Try multiple positions to find one with good spacing
         best_position = None
@@ -107,10 +106,18 @@ class OrnamentManager:
         ornament = self.create_ornament(type_id, best_position)
         self.add(ornament)
 
-    # --------------------
     # UPDATE LOOP
-    # --------------------
     def update(self):
+        # Check if any Painting exists for histogram specification
+        painting_refs = [o.ref_image for o in self.ornaments if isinstance(o, Painting) and o.ref_image is not None]
+        if painting_refs:
+            # Use the last added Painting as reference
+            ref_img = painting_refs[-1]
+            # Convert self.current_tree to np.array
+            tree_np = np.array(self.original_tree)
+            tree_matched = apply_histogram_specification(tree_np, np.array(ref_img))
+            self.current_tree = Image.fromarray(tree_matched)
+
         blur_power = self.compute_global_blur()
         ksize = max(3, 2 * blur_power + 1)
 
@@ -124,9 +131,7 @@ class OrnamentManager:
                 pass  # Painting update is currently disabled
             orn.update()
 
-    # --------------------
     # BLUR CALCULATION
-    # --------------------
     def compute_global_blur(self):
         return sum(
             o.blur_strength

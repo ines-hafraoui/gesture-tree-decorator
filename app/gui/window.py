@@ -7,8 +7,9 @@ import time
 from vision.camera_thread import CameraThread
 from vision.hand_detector import HandGesture
 from gui.renderer import TreeRenderer
-from gui.state import State
 from ornaments.manager import OrnamentManager
+from gui.ornament_menu import OrnamentMenu
+from gui.painting_menu import PaintingMenu
 from utils.config import ASSETS_PATH
 import random
 
@@ -37,31 +38,43 @@ class MainWindow:
         self._update()
 
     def _build_ui(self):
-        self.tree_canvas = tk.Canvas(self.root, width=600, height=580)
-        self.tree_canvas.grid(row=0, column=0, rowspan=4)
+        # Left frame: tree + menu
+        left_frame = ttk.Frame(self.root)
+        left_frame.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
+        left_frame.grid_rowconfigure(0, weight=1)
+        left_frame.grid_rowconfigure(1, weight=0)
+        left_frame.grid_columnconfigure(0, weight=1)
 
-        self.start_btn = ttk.Button(self.root, text="Start Hand Detection",
-                                    command=self.toggle_camera)
-        self.start_btn.grid(row=0, column=1, pady=5)
+        # Tree canvas
+        self.tree_canvas = tk.Canvas(left_frame, width=600, height=580)
+        self.tree_canvas.grid(row=0, column=0, sticky="ns")
+
+        # Ornament menu canvas
+        self.menu_canvas = tk.Canvas(left_frame, width=600, height=70)
+        self.menu_canvas.grid(row=1, column=0, sticky="ew")
+        self.menu = OrnamentMenu(self.menu_canvas)
+        self.menu.render(self.menu_canvas)
+
+        # Painting reference menu (initially hidden)
+        self.painting_menu_canvas = tk.Canvas(left_frame, width=600, height=70, bg="#eee")
+        self.painting_menu_canvas.grid(row=2, column=0, sticky="ew", pady=(5,0))
+        self.painting_menu_canvas.grid_remove()  # hide until Painting is selected
+
+        # Right frame: camera preview + controls
+        right_frame = ttk.Frame(self.root)
+        right_frame.grid(row=0, column=1, sticky="nsew", padx=10, pady=10)
+        right_frame.grid_rowconfigure(0, weight=1)
+        right_frame.grid_columnconfigure(0, weight=1)
+
+        self.preview_label = ttk.Label(right_frame)
+        self.preview_label.grid(row=0, column=0, sticky="nsew", pady=5)
 
         self.mode_var = tk.StringVar(value="Idle")
-        ttk.Label(self.root, textvariable=self.mode_var).grid(row=1, column=1)
+        ttk.Label(right_frame, textvariable=self.mode_var).grid(row=1, column=0, pady=5)
 
-        self.preview_label = ttk.Label(self.root)
-        self.preview_label.grid(row=2, column=1)
-
-        # Ornament menu (initially hidden)
-        self.menu_frame = ttk.Frame(self.root)
-        self.menu_buttons = []
-
-        for i in range(1, 6):
-            btn = ttk.Button(self.menu_frame, text=f"{i}",
-                             command=lambda n=i: self._select_ornament(n))
-            btn.grid(row=(i-1)//2, column=(i-1)%2, padx=2, pady=2)
-            self.menu_buttons.append(btn)
-
-        self.menu_frame.grid(row=3, column=1, pady=10)
-        self.menu_frame.grid_remove()
+        self.start_btn = ttk.Button(right_frame, text="Start Hand Detection",
+                                   command=self.toggle_camera)
+        self.start_btn.grid(row=2, column=0, pady=5)
 
     def toggle_camera(self):
         if not self.camera.running:
@@ -81,9 +94,21 @@ class MainWindow:
         )
     
     def _select_ornament(self, idx):
-        ornament = self.manager.create_ornament(idx, self._random_position())
+        pos = self._random_position()
+
+        ref_image = None
+        if idx == 3:
+            # Show painting menu and let user pick reference
+            self.painting_menu_canvas.grid()
+            # Load your reference images paths
+            paths = ["assets/painting_ref1.png", "assets/painting_ref2.png"]
+            self.painting_menu = PaintingMenu(self.painting_menu_canvas, paths)
+            self.painting_menu.render(self.painting_menu_canvas)
+            # Optionally select the first by default
+            ref_image = Image.open(paths[0])
+
+        ornament = self.manager.create_ornament(idx, pos, ref_image=ref_image)
         self.manager.add(ornament)
-        self.renderer.render(self.tree_canvas)
         self.renderer.render(self.tree_canvas)
 
     def _on_key(self, event):
@@ -103,17 +128,23 @@ class MainWindow:
     def _update_finger_count(self, count, hand_detected):
         """ Detect finger count and add/remove ornament if cooldown passed """
         self.mode_var.set(f"Fingers: {count}")
-
         now = time.time()
+
         if hand_detected and now - self.last_add_time > self.add_cooldown:
             if count == 0:
-                # Remove last ornament when showing 0 fingers (fist)
-                self.manager.remove_last()
+                # Remove last ornament
+                last_removed = self.manager.remove_last()
                 self.last_add_time = now
+
+                if last_removed is not None:
+                    ornament_type = last_removed.type_id
+                    self.menu.select(ornament_type - 1, self.menu_canvas, color="red")
+
             elif count != 0:
-                # Add ornament for 1-5 fingers
                 self.manager.add_ornament_random(count)
                 self.last_add_time = now
+                self.menu.select(count - 1, self.menu_canvas, color="green")
+
 
     def _convert_tip_to_canvas(self, tip):
         if tip is None:
@@ -165,7 +196,6 @@ class MainWindow:
         else:
             self.preview_label.config(image="")
             self.mode_var.set("Idle")
-            self.menu_frame.grid_remove()
         
         self.manager.update()         # <-- UPDATE ORNAMENT EFFECTS
         self.renderer.render(self.tree_canvas)
