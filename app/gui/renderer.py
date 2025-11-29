@@ -8,12 +8,14 @@ class TreeRenderer:
         self.manager = ornament_manager
         tree_path = os.path.join(ASSETS_PATH, "tree.png")
         self.tree_img = Image.open(tree_path).resize((600, 580))
+        # Give manager a reference to the tree
+        self.manager.set_tree(self.tree_img)
 
     def render(self, canvas):
         canvas.delete("all")
 
         # Draw tree
-        tk_tree = ImageTk.PhotoImage(self.tree_img)
+        tk_tree = ImageTk.PhotoImage(self.manager.current_tree)
         canvas.image_ref = tk_tree
         canvas.create_image(0, 0, anchor="nw", image=tk_tree)
 

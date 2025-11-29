@@ -7,8 +7,10 @@ import time
 from vision.camera_thread import CameraThread
 from vision.hand_detector import HandGesture
 from gui.renderer import TreeRenderer
+from gui.state import State
 from ornaments.manager import OrnamentManager
 from utils.config import ASSETS_PATH
+import random
 
 class MainWindow:
     def __init__(self):
@@ -22,6 +24,8 @@ class MainWindow:
         self.renderer = TreeRenderer(self.manager)
         self.last_add_time = 0
         self.add_cooldown = 1
+        self.cam_width = None
+        self.cam_height = None
 
         # UI Layout
         self._build_ui()
@@ -69,8 +73,17 @@ class MainWindow:
             self.mode_var.set("Idle")
             self.start_btn.config(text="Start Hand Detection")
 
+    #Temporary random position generator for ornament placement
+    def _random_position(self):
+        return (
+            random.randint(50, 550),   # X within canvas
+            random.randint(80, 520)    # Y within canvas
+        )
+    
     def _select_ornament(self, idx):
-        self.manager.add_ornament(idx)
+        ornament = self.manager.create_ornament(idx, self._random_position())
+        self.manager.add(ornament)
+        self.renderer.render(self.tree_canvas)
         self.renderer.render(self.tree_canvas)
 
     def _on_key(self, event):
@@ -93,8 +106,35 @@ class MainWindow:
 
         now = time.time()
         if count != 0 and now - self.last_add_time > self.add_cooldown:
-            self.manager.add_ornament(count)
+            self.manager.add_ornament_random(count)
             self.last_add_time = now
+
+    def _convert_tip_to_canvas(self, tip):
+        if tip is None:
+            return None
+
+        if self.cam_width is None or self.cam_height is None:
+            return None  # resolution unknown yet
+
+        cam_x, cam_y = tip
+
+        # Normalize
+        norm_x = cam_x / self.cam_width
+        norm_y = cam_y / self.cam_height
+
+        CANVAS_W = 600
+        CANVAS_H = 580
+
+        x = int(norm_x * CANVAS_W)
+        y = int(norm_y * CANVAS_H)
+
+        return (x, y)
+
+    def _select_ornament(self, idx):
+        pos = self._random_position()
+        ornament = self.manager.create_ornament(idx, pos)
+        self.manager.add(ornament)
+        self.renderer.render(self.tree_canvas)
 
     def _update(self):
         """
@@ -105,17 +145,24 @@ class MainWindow:
         """
         if self.camera.running:
             frame = self.camera.read_frame()
+            if frame is not None and self.cam_width is None:
+                h, w, _ = frame.shape
+                self.cam_width = w
+                self.cam_height = h
             if frame is not None:
-                finger_count, annotated_frame = self.detector.process(frame)
+                finger_count, annotated_frame,index_tip_pos = self.detector.process(frame)
                 self._update_preview(annotated_frame) #
-                self._update_finger_count(finger_count) #
+                self._update_finger_count(finger_count) 
+                self.mode_var.set(f"Fingers: {finger_count}")
+                mapped_tip = self._convert_tip_to_canvas(index_tip_pos) 
         else:
             self.preview_label.config(image="")
             self.mode_var.set("Idle")
             self.menu_frame.grid_remove()
         
+        self.manager.update()         # <-- UPDATE ORNAMENT EFFECTS
         self.renderer.render(self.tree_canvas)
-        self.root.after(30, self._update)
+        self.root.after(1, self._update)
 
     def run(self):
         self.root.mainloop()

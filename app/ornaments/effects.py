@@ -1,24 +1,55 @@
 # app/ornaments/effects.py
+from PIL import Image
 import cv2
 import numpy as np
 
-def apply_brightness(img, value=5):
-    """
-    Increase or Decrease brightness of img by value using:
-    Works for color images (BGR expected).
-    """
-    return cv2.add(img, np.array([value]))
+def convert_to_np_array(img):
+    """Convert image to numpy array if not already."""
+    if isinstance(img, np.ndarray):
+        img_np = img
+    else:
+        img_np = np.array(img)
+    
+    # Separate alpha if present
+    alpha = None
+    if img_np.shape[2] == 4:
+        alpha = img_np[:, :, 3]
+        img_np = img_np[:, :, :3]
+    
+    return img_np, alpha
 
+def reattach_alpha(img_np, alpha):
+    # Reattach alpha if needed
+    if alpha is not None:
+        return np.dstack((img_np, alpha))
+
+def apply_brightness(img, value=0):
+    """
+    Apply brightness safely.
+    img: PIL.Image
+    value: signed integer, can be negative
+    """
+    img_np, alpha = convert_to_np_array(img)
+    
+    # Convert to signed int16 temporarily
+    img_np = img_np.astype(np.int16)
+    img_np += value  # signed addition
+    img_np = np.clip(img_np, 0, 255).astype(np.uint8)  # clip to valid range
+
+    res = reattach_alpha(img_np, alpha)
+    return Image.fromarray(res)
 
 def apply_contrast(img, value=5):
     """
     Adjust contrast of the image.
     alpha > 1 increases contrast, 0 < alpha < 1 decreases contrast.
     """
-    img = img.astype(np.float32)  # prevent clipping
-    img = img * value
-    img = np.clip(img, 0, 255).astype(np.uint8)
-    return img
+    img_np, alpha = convert_to_np_array(img)
+    img_np = img_np.astype(np.float32)  # prevent clipping
+    img_np = img_np * value
+    img_np = np.clip(img_np, 0, 255).astype(np.uint8)
+    res = reattach_alpha(img_np, alpha)
+    return Image.fromarray(res)
 
 def apply_blur(img, ksize=5):
     """
@@ -26,17 +57,27 @@ def apply_blur(img, ksize=5):
     """
     if ksize % 2 == 0:
         ksize += 1
-    return cv2.GaussianBlur(img, (ksize, ksize), 0)
+    
+    img_np, alpha = convert_to_np_array(img)
+    img_np = cv2.GaussianBlur(img_np, (ksize, ksize), 0)
+    res = reattach_alpha(img_np, alpha)
+    return Image.fromarray(res)
 
-def apply_mosaic(img, scale=0.1):
-    """
-    Apply mosaic (pixelation) effect.
-    scale: fraction to downscale the image (0.05–0.5 usually).
-    """
-    h, w = img.shape[:2]
-    small = cv2.resize(img, (int(w*scale), int(h*scale)), interpolation=cv2.INTER_LINEAR)
-    mosaic_img = cv2.resize(small, (w, h), interpolation=cv2.INTER_NEAREST)
-    return mosaic_img
+def apply_mosaic(img, scale=0.05):
+    img_np, alpha = convert_to_np_array(img)
+    h, w = img_np.shape[:2]
+
+    # ensure at least 1 pixel
+    new_w = max(1, int(w * scale))
+    new_h = max(1, int(h * scale))
+
+    small = cv2.resize(img_np, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
+    mosaic = cv2.resize(small, (w, h), interpolation=cv2.INTER_NEAREST)
+
+    if alpha is not None:
+        mosaic = np.dstack((mosaic, alpha))
+
+    return Image.fromarray(mosaic)
 
 def apply_histogram_equalization(img):
     """
