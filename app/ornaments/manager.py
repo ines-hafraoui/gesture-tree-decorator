@@ -61,7 +61,7 @@ class OrnamentManager:
 
 
     # RANDOM TREE PLACEMENT
-    def add_ornament_random(self, type_id):
+    def add_ornament_random(self, type_id, ref_image=None):
         # Try multiple positions to find one with good spacing
         best_position = None
         best_min_distance = 0
@@ -103,7 +103,7 @@ class OrnamentManager:
                 if min_distance >= min_spacing:
                     break
 
-        ornament = self.create_ornament(type_id, best_position)
+        ornament = self.create_ornament(type_id, best_position, ref_image=ref_image)
         self.add(ornament)
 
     # UPDATE LOOP
