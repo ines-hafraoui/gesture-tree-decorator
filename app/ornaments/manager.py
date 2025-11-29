@@ -63,19 +63,48 @@ class OrnamentManager:
     # RANDOM TREE PLACEMENT
     # --------------------
     def add_ornament_random(self, type_id):
-        x = random.randint(self.tree_center_x - self.tree_width // 2,
-                           self.tree_center_x + self.tree_width // 2)
+        # Try multiple positions to find one with good spacing
+        best_position = None
+        best_min_distance = 0
+        max_attempts = 20  # Number of positions to try
+        min_spacing = 60  # Minimum distance between ornaments
+        
+        for _ in range(max_attempts):
+            x = random.randint(self.tree_center_x - self.tree_width // 2,
+                               self.tree_center_x + self.tree_width // 2)
 
-        half_width = self.tree_width // 2
+            half_width = self.tree_width // 2
 
-        y_min = self.tree_top_y + int(
-            (abs(x - self.tree_center_x) / half_width)
-            * (self.tree_bottom_y - self.tree_top_y) * 0.5
-        )
+            y_min = self.tree_top_y + int(
+                (abs(x - self.tree_center_x) / half_width)
+                * (self.tree_bottom_y - self.tree_top_y) * 0.5
+            )
 
-        y = random.randint(y_min, self.tree_bottom_y)
+            y = random.randint(y_min, self.tree_bottom_y)
+            
+            # Calculate minimum distance to existing ornaments
+            min_distance = float('inf')
+            for orn in self.ornaments:
+                dx = x - orn.position[0]
+                dy = y - orn.position[1]
+                distance = (dx * dx + dy * dy) ** 0.5
+                min_distance = min(min_distance, distance)
+            
+            # If no ornaments exist yet, use this position
+            if not self.ornaments:
+                best_position = (x, y)
+                break
+            
+            # Keep track of the position with best spacing
+            if min_distance > best_min_distance:
+                best_min_distance = min_distance
+                best_position = (x, y)
+                
+                # If we found a position with good spacing, use it
+                if min_distance >= min_spacing:
+                    break
 
-        ornament = self.create_ornament(type_id, (x, y))
+        ornament = self.create_ornament(type_id, best_position)
         self.add(ornament)
 
     # --------------------

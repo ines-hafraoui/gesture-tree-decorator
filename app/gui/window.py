@@ -100,14 +100,20 @@ class MainWindow:
         except Exception as e:
             print("Preview update failed:", e)
 
-    def _update_finger_count(self, count):
-        """ Detect finger count and add ornament if cooldown passed """
+    def _update_finger_count(self, count, hand_detected):
+        """ Detect finger count and add/remove ornament if cooldown passed """
         self.mode_var.set(f"Fingers: {count}")
 
         now = time.time()
-        if count != 0 and now - self.last_add_time > self.add_cooldown:
-            self.manager.add_ornament_random(count)
-            self.last_add_time = now
+        if hand_detected and now - self.last_add_time > self.add_cooldown:
+            if count == 0:
+                # Remove last ornament when showing 0 fingers (fist)
+                self.manager.remove_last()
+                self.last_add_time = now
+            elif count != 0:
+                # Add ornament for 1-5 fingers
+                self.manager.add_ornament_random(count)
+                self.last_add_time = now
 
     def _convert_tip_to_canvas(self, tip):
         if tip is None:
@@ -150,10 +156,11 @@ class MainWindow:
                 self.cam_width = w
                 self.cam_height = h
             if frame is not None:
-                finger_count, annotated_frame,index_tip_pos = self.detector.process(frame)
-                self._update_preview(annotated_frame) #
-                self._update_finger_count(finger_count) 
-                self.mode_var.set(f"Fingers: {finger_count}")
+                finger_count, annotated_frame, index_tip_pos = self.detector.process(frame)
+                self._update_preview(annotated_frame)
+                hand_detected = index_tip_pos is not None
+                self._update_finger_count(finger_count, hand_detected) 
+                self.mode_var.set(f"Fingers: {finger_count}" if hand_detected else "No hand detected")
                 mapped_tip = self._convert_tip_to_canvas(index_tip_pos) 
         else:
             self.preview_label.config(image="")
